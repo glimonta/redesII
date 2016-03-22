@@ -61,20 +61,27 @@ class ConsoleProtocol(basic.LineReceiver):
 
     def __init__(self, service):
         self.service = service
-        d = self.service.connect_server()
+        #d = self.service.connect_server()
 
     def connectionMade(self):
         self.transport.write('>>> ')
 
     def lineReceived(self, line):
-        if ('PELICULAS_DESCARGANDO' == line):
-            self.sendLine('Quiero ver cuantas peliculas se están descargando')
+        if ('INSCRIPCION' in line):
+            _, username = line.split(' ', 1)
+            self.sendLine('Quiero inscribirme con el nombre ' + username)
+            d = self.service.connect_server(username)
             self.transport.write('>>> ')
-        elif ('PELICULAS_DESCARGADAS' == line):
-            self.sendLine('Quiero saber cuantas peliculas se han descargado')
+        elif ('PELICULAS' == line):
+            self.sendLine('Quiero saber cuales son las peliculas del servidor')
             self.transport.write('>>> ')
-        elif ('CLIENTES_FIELES' == line):
-            self.sendLine('¿Quiénes son los clientes fieles?')
+        elif ('PELICULA' in line):
+            _, movie = line.split(' ', 1)
+            self.sendLine('Quiero descargar la pelicula ' + movie)
+            self.transport.write('>>> ')
+        elif ('STATUS' in line):
+            _, movie = line.split(' ', 1)
+            self.sendLine('Quiero saber el status de la pelicula ' + movie)
             self.transport.write('>>> ')
         elif ('SALIR' == line):
             self.console_finished_running();
@@ -93,16 +100,18 @@ class RegisterServerProtocol(NetstringReceiver):
     reply = ''
     movies = MovieList()
 
-    def __init__(self):
-        m = Movie('potter', 'Harry Potter')
-        m1 = Movie('anillos', 'El señor de los anillos')
-        m2 = Movie('wars', 'Star Wars')
-        movies = [m,m1,m2]
-        for movie in movies:
-            self.movies.add_movie(movie)
+    #def __init__(self):
+    #    m = Movie('potter', 'Harry Potter')
+    #    m1 = Movie('anillos', 'El señor de los anillos')
+    #    m2 = Movie('wars', 'Star Wars')
+    #    movies = [m,m1,m2]
+    #    for movie in movies:
+    #        self.movies.add_movie(movie)
 
     def connectionMade(self):
-        self.sendString(self.movies.to_netstring())
+        string = 'registro.' + self.factory.username
+        length = str(len(string))
+        self.sendString(length + ':' + string + ',')
 
     def stringReceived(self, request):
         if 'Ok' in request:
@@ -125,8 +134,9 @@ class RegisterServerFactory(ClientFactory):
 
     protocol = RegisterServerProtocol
 
-    def __init__(self):
+    def __init__(self, username):
         self.deferred = Deferred()
+        self.username = username
 
     def reply_received(self, reply):
         if self.deferred is not None:
@@ -144,8 +154,8 @@ class ConsoleService(object):
         self.host = host
         self.port = port
 
-    def connect_server(self):
-        factory = RegisterServerFactory()
+    def connect_server(self, username):
+        factory = RegisterServerFactory(username)
         factory.deferred.addCallback(self.print_confirmation)
         from twisted.internet import reactor
         reactor.connectTCP(self.host, self.port, factory)
