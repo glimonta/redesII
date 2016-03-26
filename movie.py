@@ -4,29 +4,20 @@ class Movie:
         self.id_movie = id_movie
         self.title = title
 
-    def to_netstring(self):
-        string = 'id_pelicula.' + self.id_movie
-        length = len(string)
-        return str(length) + ':' + string + ','
+    def to_string(self):
+        return 'id_pelicula: ' + self.id_movie + ', titulo: ' + self.title
+
 
 class MovieList:
 
     def __init__(self):
         self.movies = []
 
+    def __len__(self):
+        return len(self.movies)
+
     def add_movie(self, movie):
         self.movies.append(movie)
-
-    def to_netstring(self):
-        movie_list_len = len(self.movies)
-        string = 'lista_peliculas.' + str(movie_list_len)
-        length = len(string)
-        string = str(length) + ':' + string + ','
-        for index in range(movie_list_len):
-            string += self.movies[index].to_netstring()
-        total_length = len(string)
-        print str(total_length) + ':' + string + ','
-        return str(total_length) + ':' + string + ','
 
 class Client:
 
@@ -34,6 +25,9 @@ class Client:
         self.name = name
         self.host = host
         self.port = port
+
+    def to_string(self):
+        return self.name + ' ' + self.host + ' ' + str(self.port)
 
 class Server:
 
@@ -49,7 +43,7 @@ class Server:
         return '(\'' + self.host + '\', ' + str(self.port) + ')'
 
     def to_server(self):
-        return (self.host, self.port)
+        return (str(self.host), self.port)
 
     def add_client(self):
         self.clients += 1

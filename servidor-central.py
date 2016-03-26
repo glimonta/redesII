@@ -10,6 +10,7 @@ from movie import Movie, MovieList, Server, Client
 
 movies = {}
 servers = []
+users = {}
 
 def parse_args():
     usage = """ %prog [options]
@@ -46,50 +47,81 @@ Se corre de la siguiente manera:
     return options, poetry_file
 
 
-class RegisterServerProtocol(NetstringReceiver):
+class DownloadServerProtocol(NetstringReceiver):
+
+    id_movie = None
 
     def stringReceived(self, request):
         if '.' not in request:
-            self.bad_request()
+            self.transport.loseConnection()
+            return
+
+        action, parameter = request.split('.', 1)
+
+        peer = self.transport.getPeer()
+        self.request_received(action, parameter, peer)
+
+    def request_received(self, action, parameter, peer):
+        thunk = getattr(self, 'do_%s' % (action,), None)
+
+        if thunk is None:
+            return None
 
         try:
-            num_movies_info, movies = request.split(',', 1)
-            _, _, num_movies_info = num_movies_info.split(':', 2)
-            name, value = num_movies_info.split('.', 1)
-            if ('lista_peliculas' == name):
-                self.movie_list = []
-                self.number_of_movies = int(value)
-            for index in range(self.number_of_movies):
-                movie_info, movies = movies.split(',', 1)
-                _, movie_info = movie_info.split(':', 1)
-                name, value = movie_info.split('.', 1)
-                if ('id_pelicula' == name):
-                    self.movie_list.append((name, value))
-            self.add_new_download_server()
-        except ValueError:
-            self.bad_request()
+            return thunk(parameter, peer)
+        except:
+            return None
+
+    def do_server_host(self, host, peer):
+        self.factory.server_host = host
+        return 'Ok'
+
+    def do_server_port(self, port, peer):
+        self.factory.server_port = port
+        self.factory.ser = Server(self.factory.server_host, self.factory.server_port)
+        return 'Ok'
+
+    def do_number_of_movies(self, number, peer):
+        number_of_movies = number
+        return 'Ok'
+
+    def do_id_movie(self, id_movie, peer):
+        self.id_movie = id_movie
+        return 'Ok'
+
+    def do_movie_title(self, title, peer):
+        movie = Movie(self.id_movie, title)
+        if movie not in movies:
+            movies[movie] = [self.factory.ser]
+        else:
+            movies[movie].append(self.factory.ser)
+        return 'Ok'
+
+    def do_last_movie_title(self, title, peer):
+        movie = Movie(self.id_movie, title)
+        if movie not in movies:
+            movies[movie] = [self.factory.ser]
+        else:
+            movies[movie].append(self.factory.ser)
+        self.add_new_download_server()
+        return 'Ok'
 
     def closeConnection(self):
         self.transport.loseConnection()
 
     def print_movie_list(self):
         for movie in movies:
-            print 'id_pelicula:', movie
-            print 'servidores:', movies[movie]
+            print movie.to_string()
+            print 'server:'
+            for server in movies[movie]:
+                print server.to_string()
             print '---------------------'
 
 
     def add_new_download_server(self):
-        host = self.transport.getPeer().host
-        port = self.transport.getPeer().port
-        for movie in self.movie_list:
-            if movie[1] not in movies:
-                movies[movie[1]] = [(host, port)]
-            else:
-                movies[movie[1]].append((host, port))
-        servers.append(Server(host, port))
-        self.print_movie_list()
-        self.sendString('2:Ok,')
+        servers.append(self.factory.ser)
+        #self.print_movie_list()
+        self.sendString('Ok')
         self.transport.loseConnection()
 
     def connectionMade(self):
@@ -100,32 +132,37 @@ class RegisterServerProtocol(NetstringReceiver):
         self.transport.loseConnection()
 
 
-class RegisterServerFactory(ServerFactory):
+class DownloadServerFactory(ServerFactory):
 
-    protocol = RegisterServerProtocol
+    protocol = DownloadServerProtocol
+    movie_list = []
 
     def __init__(self):
         self.init = True
 
-class RegisterClientProtocol(NetstringReceiver):
+
+class ClientProtocol(NetstringReceiver):
 
     users = []
 
     def stringReceived(self, request):
         if '.' not in request:
-            self.bad_request()
+            self.transport.loseConnection()
+            return
 
-        try:
-            _, request = request.split(':', 2)
-            name, value = request.split('.', 1)
-            if ('registro' == name):
-                host = self.transport.getPeer().host
-                port = self.transport.getPeer().port
-                self.users.append(Client(value, host, port))
-                self.sendString('2:Ok,')
-                self.transport.loseConnection()
-        except ValueError:
-            self.bad_request()
+        action, parameter = request.split('.', 1)
+
+        peer = self.transport.getPeer()
+        self.request_received(action, parameter, peer)
+
+    def request_received(self, action, parameter, peer):
+        result = self.factory.do_action(action, parameter, peer)
+
+        if result is not None:
+            self.sendString('Ok')
+        else:
+            self.sendString('Bad request')
+        self.transport.loseConnection
 
     def closeConnection(self):
         self.transport.loseConnection()
@@ -138,12 +175,35 @@ class RegisterClientProtocol(NetstringReceiver):
         self.transport.loseConnection()
 
 
-class RegisterClientFactory(ServerFactory):
+class ClientFactory(ServerFactory):
 
-    protocol = RegisterClientProtocol
+    protocol = ClientProtocol
 
-    def __init__(self):
+    def __init__(self, service):
         self.init = True
+        self.service = service
+
+    def do_action(self, action, parameter, peer):
+        thunk = getattr(self, 'do_%s' % (action,), None)
+
+        if thunk is None:
+            return None
+
+        try:
+            return thunk(parameter, peer)
+        except:
+            return None
+
+    def do_register(self, username, peer):
+        return self.service.register_user(username, peer)
+
+class ClientService(object):
+
+    def register_user(self, username, peer):
+        c = Client(username, peer.host, peer.port)
+        users[c] = []
+        print 'El usuario', username, 'ha sido registrado exitosamente.'
+        return 'Ok'
 
 class ConsoleProtocol(basic.LineReceiver):
     from os import linesep as delimiter
@@ -168,6 +228,10 @@ class ConsoleProtocol(basic.LineReceiver):
             self.sendLine('¿Quiénes son los clientes por servidor?')
             self.clients_by_server()
             self.transport.write('>>> ')
+        elif('clientes' == line):
+            self.sendLine('Los usuarios registrados son:')
+            self.registered_users()
+            self.transport.write('>>> ')
         elif ('SALIR' == line):
             self.console_finished_running();
         else:
@@ -180,14 +244,18 @@ class ConsoleProtocol(basic.LineReceiver):
         self.transport.loseConnection()
         reactor.stop()
 
+    def registered_users(self):
+        for user in users:
+            self.sendLine(user.to_string())
+
     def movies_by_server(self):
         for server in servers:
             self.sendLine('server:')
             self.sendLine('  ' + server.to_string())
             self.sendLine('movies:')
             for movie in movies:
-                if server.to_server() in movies[movie]:
-                    self.sendLine('  ' + movie)
+                if server in movies[movie]:
+                    self.sendLine('  ' + movie.to_string())
 
     def requests_by_server(self):
         for server in servers:
@@ -212,21 +280,13 @@ class ConsoleService(object):
         self.host = host
         self.port = port
 
-    #def connect_server(self):
-    #    factory = RegisterServerFactory()
-    #    factory.deferred.addCallback(self.print_confirmation)
-    #    from twisted.internet import reactor
-    #    reactor.connectTCP(self.host, self.port, factory)
-    #    return factory.deferred
-
-    #def print_confirmation(self, reply):
-    #    return reply
-
 def main():
     options, poetry_file = parse_args()
 
-    factory_server = RegisterServerFactory()
-    factory_client = RegisterClientFactory()
+    client_service = ClientService()
+
+    factory_server = DownloadServerFactory()
+    factory_client = ClientFactory(client_service)
 
     from twisted.internet import reactor
 

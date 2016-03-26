@@ -74,6 +74,7 @@ class ConsoleProtocol(basic.LineReceiver):
             self.transport.write('>>> ')
         elif ('PELICULAS' == line):
             self.sendLine('Quiero saber cuales son las peliculas del servidor')
+            self.sendLine('15:lista_peliculas.0,')
             self.transport.write('>>> ')
         elif ('PELICULA' in line):
             _, movie = line.split(' ', 1)
@@ -109,9 +110,10 @@ class RegisterServerProtocol(NetstringReceiver):
     #        self.movies.add_movie(movie)
 
     def connectionMade(self):
-        string = 'registro.' + self.factory.username
-        length = str(len(string))
-        self.sendString(length + ':' + string + ',')
+        #string = 'registro.' + self.factory.username
+        #length = str(len(string))
+        #self.sendString(length + ':' + string + ',')
+        self.sendString('register.' + self.factory.username)
 
     def stringReceived(self, request):
         if 'Ok' in request:

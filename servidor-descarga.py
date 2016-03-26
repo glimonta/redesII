@@ -17,6 +17,7 @@ from twisted.internet.protocol import Protocol, ClientFactory
 from twisted.internet.defer import Deferred, maybeDeferred
 from movie import Movie, MovieList
 
+movies = []
 
 def parse_args():
     usage = """%prog [options] [ip_servidor]:puerto_servidor ...
@@ -39,7 +40,7 @@ donde la ip y el puerto pertenecen al servidor central de la aplicación.
 
     options, args = parser.parse_args()
 
-    if len(args) != 1:
+    if len(args) != 2:
         parser.error('Provide exactly one server address.')
 
     def parse_address(addr):
@@ -54,7 +55,7 @@ donde la ip y el puerto pertenecen al servidor central de la aplicación.
 
         return host, int(port)
 
-    return options, parse_address(args[0])
+    return options, parse_address(args[0]), parse_address(args[1])
 
 class ConsoleProtocol(basic.LineReceiver):
     from os import linesep as delimiter
@@ -91,18 +92,25 @@ class ConsoleProtocol(basic.LineReceiver):
 class RegisterServerProtocol(NetstringReceiver):
 
     reply = ''
-    movies = MovieList()
 
     def __init__(self):
         m = Movie('potter', 'Harry Potter')
         m1 = Movie('anillos', 'El señor de los anillos')
         m2 = Movie('wars', 'Star Wars')
-        movies = [m,m1,m2]
-        for movie in movies:
-            self.movies.add_movie(movie)
+        movie_list = [m,m1,m2]
+        for movie in movie_list:
+            movies.append(movie)
 
     def connectionMade(self):
-        self.sendString(self.movies.to_netstring())
+        self.sendString('server_host.' + self.factory.host)
+        self.sendString('server_port.' + str(self.factory.port))
+        for movie in movies:
+            if movie == movies[-1]:
+                self.sendString('id_movie.' + movie.id_movie)
+                self.sendString('last_movie_title.' + movie.title)
+            else:
+                self.sendString('id_movie.' + movie.id_movie)
+                self.sendString('movie_title.' + movie.title)
 
     def stringReceived(self, request):
         if 'Ok' in request:
@@ -125,8 +133,10 @@ class RegisterServerFactory(ClientFactory):
 
     protocol = RegisterServerProtocol
 
-    def __init__(self):
+    def __init__(self, host, port):
         self.deferred = Deferred()
+        self.host = host
+        self.port = port
 
     def reply_received(self, reply):
         if self.deferred is not None:
@@ -136,19 +146,21 @@ class RegisterServerFactory(ClientFactory):
     def clientConnectionFailed(self, connector, reason):
         if self.deferred is not None:
             d, self.deferred = self.deferred, None
-            d.errback(reason, connector.getDestination())
+            d.errback(reason)
 
 class ConsoleService(object):
 
-    def __init__(self, host, port):
+    def __init__(self, server_host, server_port, host, port):
+        self.server_host = server_host
+        self.server_port = server_port
         self.host = host
         self.port = port
 
     def connect_server(self):
-        factory = RegisterServerFactory()
+        factory = RegisterServerFactory(self.host, self.port)
         factory.deferred.addCallback(self.print_confirmation)
         from twisted.internet import reactor
-        reactor.connectTCP(self.host, self.port, factory)
+        reactor.connectTCP(self.server_host, self.server_port, factory)
         return factory.deferred
 
     def print_confirmation(self, reply):
@@ -156,11 +168,14 @@ class ConsoleService(object):
 
 def main():
 
-    options, server_addr = parse_args()
+    options, server_addr, addr = parse_args()
+
+    server_host, server_port = server_addr
+    host, port = addr
 
     from twisted.internet import reactor
 
-    service = ConsoleService(*server_addr)
+    service = ConsoleService(server_host, server_port, host, port)
     stdio.StandardIO(ConsoleProtocol(service), 0, 1, reactor)
     reactor.run()
 
