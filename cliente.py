@@ -74,7 +74,7 @@ class ConsoleProtocol(basic.LineReceiver):
             self.transport.write('>>> ')
         elif ('PELICULAS' == line):
             self.sendLine('Quiero saber cuales son las peliculas del servidor')
-            self.sendLine('15:lista_peliculas.0,')
+            self.service.list_movies()
             self.transport.write('>>> ')
         elif ('PELICULA' in line):
             _, movie = line.split(' ', 1)
@@ -100,14 +100,6 @@ class RegisterServerProtocol(NetstringReceiver):
 
     reply = ''
     movies = MovieList()
-
-    #def __init__(self):
-    #    m = Movie('potter', 'Harry Potter')
-    #    m1 = Movie('anillos', 'El señor de los anillos')
-    #    m2 = Movie('wars', 'Star Wars')
-    #    movies = [m,m1,m2]
-    #    for movie in movies:
-    #        self.movies.add_movie(movie)
 
     def connectionMade(self):
         #string = 'registro.' + self.factory.username
@@ -150,6 +142,70 @@ class RegisterServerFactory(ClientFactory):
             d, self.deferred = self.deferred, None
             d.errback(reason, connector.getDestination())
 
+class ListMovieServerProtocol(NetstringReceiver):
+
+    reply = ''
+    movies = MovieList()
+
+    def connectionMade(self):
+        self.sendString('list_movies.0')
+
+    def stringReceived(self, request):
+        if '.' not in request:
+            self.transport.loseConnection()
+            return
+
+        action, parameter = request.split('.', 1)
+
+        peer = self.transport.getPeer()
+        self.request_received(action, parameter, peer)
+
+    def request_received(self, action, parameter, peer):
+        thunk = getattr(self, 'do_%s' % (action,), None)
+
+        if thunk is None:
+            return None
+
+        try:
+            return thunk(parameter, peer)
+        except:
+            return None
+
+    def do_id_movie(self, id_movie, peer):
+        self.id_movie = id_movie
+
+    def do_movie_title(self, title, peer):
+        movie = Movie(self.id_movie, title)
+        if movie not in self.factory.movies:
+            self.factory.movies.append(movie)
+
+    def do_end_list(self, value, peer):
+        self.factory.list_received(self.factory.movies)
+
+    def connectionLost(self, reason):
+        self.confirmationReceived(self.reply)
+
+    def confirmationReceived(self, movie_list):
+        self.factory.list_received(movie_list)
+
+class ListMovieServerFactory(ClientFactory):
+
+    protocol = ListMovieServerProtocol
+    movies = []
+
+    def __init__(self):
+        self.deferred = Deferred()
+
+    def list_received(self, movie_list):
+        if self.deferred is not None:
+            d, self.deferred = self.deferred, None
+            d.callback(movie_list)
+
+    def clientConnectionFailed(self, connector, reason):
+        if self.deferred is not None:
+            d, self.deferred = self.deferred, None
+            d.errback(reason, connector.getDestination())
+
 class ConsoleService(object):
 
     def __init__(self, host, port):
@@ -163,8 +219,22 @@ class ConsoleService(object):
         reactor.connectTCP(self.host, self.port, factory)
         return factory.deferred
 
+    def list_movies(self):
+        factory = ListMovieServerFactory()
+        factory.deferred.addCallback(self.print_movie_list)
+        from twisted.internet import reactor
+        reactor.connectTCP(self.host, self.port, factory)
+        return factory.deferred
+
     def print_confirmation(self, reply):
         return reply
+
+    def print_movie_list(self, movies):
+        print ''
+        print '----------------------------------------'
+        for movie in movies:
+            print movie.to_string()
+            print '----------------------------------------'
 
 def main():
 

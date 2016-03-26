@@ -127,11 +127,6 @@ class DownloadServerProtocol(NetstringReceiver):
     def connectionMade(self):
         print 'Nueva conexión desde', self.transport.getPeer()
 
-    def bad_request(self):
-        self.sendString('11:Bad request,')
-        self.transport.loseConnection()
-
-
 class DownloadServerFactory(ServerFactory):
 
     protocol = DownloadServerProtocol
@@ -156,13 +151,29 @@ class ClientProtocol(NetstringReceiver):
         self.request_received(action, parameter, peer)
 
     def request_received(self, action, parameter, peer):
-        result = self.factory.do_action(action, parameter, peer)
+        result = self.do_action(action, parameter, peer)
 
-        if result is not None:
-            self.sendString('Ok')
-        else:
-            self.sendString('Bad request')
+    def do_action(self, action, parameter, peer):
+        thunk = getattr(self, 'do_%s' % (action,), None)
+
+        if thunk is None:
+            return None
+
+        try:
+            return thunk(parameter, peer)
+        except:
+            return None
+
         self.transport.loseConnection
+
+    def do_list_movies(self, value, peer):
+        return self.list_movies(value, peer)
+
+    def list_movies(self, value, peer):
+        for movie in movies:
+            self.sendString('id_movie.' + movie.id_movie)
+            self.sendString('movie_title.' + movie.title)
+        self.sendString('end_list.0')
 
     def closeConnection(self):
         self.transport.loseConnection()
@@ -171,7 +182,7 @@ class ClientProtocol(NetstringReceiver):
         print 'Nueva conexión desde', self.transport.getPeer()
 
     def bad_request(self):
-        self.sendString('11:Bad request,')
+        self.sendString('Bad Request')
         self.transport.loseConnection()
 
 
