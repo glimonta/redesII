@@ -73,9 +73,6 @@ class DownloadServerProtocol(XmlStream):
         print('Attributes: {0}'.format(elementRoot.attributes))
         if elementRoot.name == 'register_download_server':
             self.action = 'register_download_server'
-            print elementRoot.attributes
-            print elementRoot.attributes['host']
-            print elementRoot.attributes['port']
             self.host = str(elementRoot.attributes['host'])
             self.port = int(elementRoot.attributes['port'])
 
@@ -95,13 +92,10 @@ class DownloadServerProtocol(XmlStream):
 
     def onDocumentEnd(self):
         """ Parsing has finished, you should send your response now """
-        print 'termine de parsear'
-        print self.host, type(self.host)
-        print self.port, type(self.port)
         self.server = Server(self.host, self.port)
         self.add_movie_list()
         servers.append(self.server)
-        print 'new server added'
+        print 'Se agregó el nuevo servidor: ', self.server.to_string()
 
     def add_movie_list(self):
         for movie in self.movie_list:
