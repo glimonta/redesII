@@ -72,7 +72,7 @@ class ConsoleProtocol(basic.LineReceiver):
         if ('INSCRIPCION' in line):
             _, username = line.split(' ', 1)
             self.sendLine('Quiero inscribirme con el nombre ' + username)
-            d = self.service.connect_server(username)
+            self.service.connect_server(username)
             self.transport.write('>>> ')
         elif ('PELICULAS' == line):
             self.sendLine('Quiero saber cuales son las peliculas del servidor')
@@ -82,6 +82,7 @@ class ConsoleProtocol(basic.LineReceiver):
             _, movie = line.split(' ', 1)
             self.sendLine('Quiero descargar la pelicula ' + movie)
             self.service.request_movie(movie)
+            #d = self.service.request_movie_download_server(movie)
             self.transport.write('>>> ')
         elif ('STATUS' in line):
             _, movie = line.split(' ', 1)
@@ -181,6 +182,7 @@ class ListMovieServerProtocol(XmlStream):
     def __init__(self):
         XmlStream.__init__(self)    # possibly unnecessary
         self._initializeStream()
+        self.movies = []
 
     def connectionMade(self):
         request = Element((None, 'list_movies'))
@@ -234,7 +236,6 @@ class ListMovieServerProtocol(XmlStream):
 class ListMovieServerFactory(ClientFactory):
 
     protocol = ListMovieServerProtocol
-    movies = []
 
     def __init__(self):
         self.deferred = Deferred()
@@ -254,6 +255,7 @@ class RequestMovieCentralServerProtocol(XmlStream):
     def __init__(self):
         XmlStream.__init__(self)    # possibly unnecessary
         self._initializeStream()
+        self.download_server = None
 
     def connectionMade(self):
         request = Element((None, 'request_movie'))
@@ -289,7 +291,8 @@ class RequestMovieCentralServerProtocol(XmlStream):
     def onDocumentEnd(self):
         """ Parsing has finished, you should send your response now """
         if self.action == 'download_from':
-            self.server_received(self.download_server)
+            print 'call server_received with:', self.download_server.to_string()
+            self.request_movie_from_download_server(self.download_server)
 
     def sendObject(self, obj):
         if IElement.providedBy(obj):
@@ -304,13 +307,18 @@ class RequestMovieCentralServerProtocol(XmlStream):
     def connectionLost(self, reason):
         self.closeConnection()
 
-    def server_received(self, download_server):
-        self.closeConnection()
+    def request_movie_from_download_server(self, download_server):
+        factory = RequestMovieDownloadServerFactory(self.factory.id_movie)
+        from twisted.internet import reactor
+        reactor.connectTCP(download_server.host, download_server.port, factory)
+        return factory.deferred
+        self.get_movie_from_server(self.factory.id_movies, download_server)
         self.factory.server_received(download_server)
 
 class RequestMovieCentralServerFactory(ClientFactory):
 
     protocol = RequestMovieCentralServerProtocol
+    id_movie = None
 
     def __init__(self, id_movie):
         self.deferred = Deferred()
@@ -319,14 +327,12 @@ class RequestMovieCentralServerFactory(ClientFactory):
     def server_received(self, server):
         if self.deferred is not None:
             d, self.deferred = self.deferred, None
-            print 'y u no send?'
-            #d.callback(self.id_movie, server)
-            d.callback()
+            d.callback(self.id_movie, server)
 
     def clientConnectionFailed(self, connector, reason):
         if self.deferred is not None:
             d, self.deferred = self.deferred, None
-            d.errback(reason)
+            d.errback(reason, connector.getDestination())
 
 class RequestMovieDownloadServerProtocol(XmlStream):
 
@@ -386,10 +392,9 @@ class RequestMovieDownloadServerFactory(ClientFactory):
 
     protocol = RequestMovieDownloadServerProtocol
 
-    def __init__(self, id_movie, server):
+    def __init__(self, id_movie):
         self.deferred = Deferred()
         self.id_movie = id_movie
-        self.server = server
 
     def receiving_movie(self):
         if self.deferred is not None:
@@ -424,10 +429,10 @@ class ConsoleService(object):
 
     def request_movie(self, movie):
         factory = RequestMovieCentralServerFactory(movie)
-        factory.deferred.addCallback(self.print_ok)
         from twisted.internet import reactor
         reactor.connectTCP(self.host, self.port, factory)
         return factory.deferred
+
 
     def print_confirmation(self, reply):
         return reply
@@ -443,22 +448,6 @@ class ConsoleService(object):
     def receiving_movie(self, id_movie):
         print 'Recibiendo pelicula', id_movie
         return 'Recibiendo pelicula' + id_movie
-
-    def print_ok(self):
-        print 'Ok'
-        return 'Ok'
-
-    def get_movie_from_server(self, id_movie, server):
-        print 'Buscando la pelicula', id_movie, 'en el servidor', server.to_string()
-        return 'Buscando la pelicula' + id_movie + 'en el servidor' + server.to_string()
-        #print 'SONIAAA ESTAS AHI?'
-        #print server.to_string()
-        #factory = RequestMovieDownloadServerFactory(id_movie, server)
-        #factory.deferred.addCallback(self.receiving_movie)
-        #from twisted.internet import reactor
-        #print server.to_string()
-        #reactor.connectTCP(server.host, server.port, factory)
-        #return factory.deferred
 
 def main():
 

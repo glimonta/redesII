@@ -157,7 +157,6 @@ class ClientProtocol(XmlStream):
         self.send(obj)
 
     def list_movies(self):
-        print 'EPALE SONIAAA'
         request = Element((None, 'movie_list'))
         for movie in movies:
             m = request.addElement('movie')
@@ -217,8 +216,10 @@ class ClientProtocol(XmlStream):
                 download_server = movies[m][0]
         request = Element((None, 'download_from'))
         s = request.addElement('server')
-        s['host'] = download_server.host
-        s['port'] = str(download_server.port)
+        #s['host'] = download_server.host
+        #s['port'] = str(download_server.port)
+        s['host'] = '127.0.0.1'
+        s['port'] = '10002'
         self.sendObject(request)
 
 

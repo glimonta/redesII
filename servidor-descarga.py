@@ -234,7 +234,6 @@ class ClientProtocol(XmlStream):
                 request = Element((None, 'movie_download'))
                 self.sendObject(request)
 
-
     def closeConnection(self):
         self.transport.loseConnection()
 
