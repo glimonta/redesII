@@ -210,6 +210,12 @@ class ClientProtocol(XmlStream):
         elif self.action == 'request_movie':
             self.choose_download_server(self.id_movie)
 
+    def registration_ok(self):
+        response = Element((None, 'registration_reply'))
+        response['reply'] = 'Ok'
+        self.sendObject(response)
+
+
     def choose_download_server(self, movie):
         for m in movies:
             if m.id_movie == movie:
