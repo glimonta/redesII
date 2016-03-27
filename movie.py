@@ -23,13 +23,13 @@ class MovieList:
 
 class Client:
 
-    def __init__(self, name, host, port):
-        self.name = name
+    def __init__(self, username, host, port):
+        self.username = username
         self.host = host
         self.port = port
 
     def to_string(self):
-        return self.name + ' ' + self.host + ' ' + str(self.port)
+        return self.username + ' ' + self.host + ' ' + str(self.port)
 
 class Server:
 
@@ -47,16 +47,13 @@ class Server:
     def to_server(self):
         return (str(self.host), self.port)
 
-    def add_client(self):
-        self.clients += 1
-
     def add_download(self, client, movie):
         self.active_downloads.append((client, movie))
-        exists = false
+        exists = False
         for c in self.clients:
-            if client in c[0]:
+            if client == c[0]:
                 c[1] += 1
-                exists = true
+                exists = True
         if not exists:
             self.clients.append((client, 1))
 
@@ -71,3 +68,12 @@ class Server:
                 exists = true
         if not exists:
             self.downloaded_movies.append((movie, 1))
+
+class Request:
+
+    def __init__(self, movie, server):
+        self.movie = movie
+        self.server = server
+
+    def to_string(self):
+        return 'request: movie:' + self.movie.to_string() + ', server:' + self.server.to_string()

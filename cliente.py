@@ -19,6 +19,7 @@ from movie                        import Movie, MovieList, Client, Server
 from twisted.words.xish.domish    import Element, IElement
 from twisted.words.xish.xmlstream import XmlStream, XmlStreamFactory
 
+username = None
 
 def parse_args():
     usage = """%prog [options] [ip_servidor]:puerto_servidor ...
@@ -70,6 +71,7 @@ class ConsoleProtocol(basic.LineReceiver):
 
     def lineReceived(self, line):
         if ('INSCRIPCION' in line):
+            global username
             _, username = line.split(' ', 1)
             self.sendLine('Quiero inscribirme con el nombre ' + username)
             self.service.connect_server(username)
@@ -120,7 +122,7 @@ class RegisterServerProtocol(XmlStream):
         request = Element((None, 'register_client'))
         request['host'] = self.transport.getHost().host
         request['port'] = str(self.transport.getHost().port)
-        request.addElement('username').addContent(self.factory.username)
+        request.addElement('username').addContent(username)
         self.sendObject(request)
 
     def dataReceived(self, data):
@@ -160,9 +162,8 @@ class RegisterServerFactory(ClientFactory):
 
     protocol = RegisterServerProtocol
 
-    def __init__(self, username):
+    def __init__(self):
         self.deferred = Deferred()
-        self.username = username
 
     def reply_received(self, reply):
         if self.deferred is not None:
@@ -259,6 +260,7 @@ class RequestMovieCentralServerProtocol(XmlStream):
 
     def connectionMade(self):
         request = Element((None, 'request_movie'))
+        request.addElement('username').addContent(username)
         request.addElement('id_movie').addContent(self.factory.id_movie)
         self.sendObject(request)
 
@@ -342,6 +344,7 @@ class RequestMovieDownloadServerProtocol(XmlStream):
 
     def connectionMade(self):
         request = Element((None, 'request_movie'))
+        request.addElement('username').addContent(username)
         request.addElement('id_movie').addContent(self.factory.id_movie)
         self.sendObject(request)
 
@@ -414,7 +417,7 @@ class ConsoleService(object):
         self.port = port
 
     def connect_server(self, username):
-        factory = RegisterServerFactory(username)
+        factory = RegisterServerFactory()
         factory.deferred.addCallback(self.print_confirmation)
         from twisted.internet import reactor
         reactor.connectTCP(self.host, self.port, factory)

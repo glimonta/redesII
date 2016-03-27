@@ -6,7 +6,7 @@ from twisted.internet             import stdio
 from twisted.protocols            import basic
 from twisted.internet.protocol    import ServerFactory, Protocol
 from twisted.protocols.basic      import NetstringReceiver
-from movie                        import Movie, MovieList, Server, Client
+from movie                        import Movie, MovieList, Server, Client, Request
 from twisted.words.xish.domish    import Element, IElement
 from twisted.words.xish.xmlstream import XmlStream, XmlStreamFactory
 
@@ -214,12 +214,21 @@ class ClientProtocol(XmlStream):
         for m in movies:
             if m.id_movie == movie:
                 download_server = movies[m][0]
+                mov = m
         request = Element((None, 'download_from'))
         s = request.addElement('server')
-        #s['host'] = download_server.host
-        #s['port'] = str(download_server.port)
-        s['host'] = '127.0.0.1'
-        s['port'] = '10002'
+        s['host'] = download_server.host
+        s['port'] = str(download_server.port)
+        for u in users:
+            if u.username == self.username:
+                client = u
+                users[u].append(Request(mov, download_server))
+        for s in servers:
+            if s == download_server:
+                print s.to_string()
+                print client.to_string()
+                print mov.to_string()
+                s.add_download(client, mov)
         self.sendObject(request)
 
 
@@ -312,7 +321,7 @@ class ConsoleProtocol(basic.LineReceiver):
             self.sendLine('  ' + server.to_string())
             self.sendLine('clients:')
             for client in server.clients:
-                self.sendLine(client[0] + ': ' + client[1])
+                self.sendLine('  ' + client[0].to_string() + ': ' + str(client[1]))
 
 
 class ConsoleService(object):
