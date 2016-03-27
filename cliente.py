@@ -15,7 +15,7 @@ from twisted.protocols            import basic
 from twisted.protocols.basic      import NetstringReceiver
 from twisted.internet.protocol    import Protocol, ClientFactory
 from twisted.internet.defer       import Deferred, maybeDeferred
-from movie                        import Movie, MovieList
+from movie                        import Movie, MovieList, Client, Server
 from twisted.words.xish.domish    import Element, IElement
 from twisted.words.xish.xmlstream import XmlStream, XmlStreamFactory
 
@@ -81,6 +81,7 @@ class ConsoleProtocol(basic.LineReceiver):
         elif ('PELICULA' in line):
             _, movie = line.split(' ', 1)
             self.sendLine('Quiero descargar la pelicula ' + movie)
+            self.service.request_movie(movie)
             self.transport.write('>>> ')
         elif ('STATUS' in line):
             _, movie = line.split(' ', 1)
@@ -248,6 +249,159 @@ class ListMovieServerFactory(ClientFactory):
             d, self.deferred = self.deferred, None
             d.errback(reason, connector.getDestination())
 
+class RequestMovieCentralServerProtocol(XmlStream):
+
+    def __init__(self):
+        XmlStream.__init__(self)    # possibly unnecessary
+        self._initializeStream()
+
+    def connectionMade(self):
+        request = Element((None, 'request_movie'))
+        request.addElement('id_movie').addContent(self.factory.id_movie)
+        self.sendObject(request)
+
+    def dataReceived(self, data):
+        """ Overload this function to simply pass the incoming data into the XML parser """
+        try:
+            self.stream.parse(data)
+        except Exception as e:
+            self._initializeStream()
+
+    def onDocumentStart(self, elementRoot):
+        """ The root tag has been parsed """
+        print('Root tag: {0}'.format(elementRoot.name))
+        print('Attributes: {0}'.format(elementRoot.attributes))
+        if elementRoot.name == 'download_from':
+            self.action = 'download_from'
+
+    def onElement(self, element):
+        """ Children/Body elements parsed """
+        print('\nElement tag: {0}'.format(element.name))
+        print('Element attributes: {0}'.format(element.attributes))
+        print('Element content: {0}'.format(element))
+        if element.name == 'server':
+            host = str(element.attributes['host'])
+            port = int(element.attributes['port'])
+            self.download_server = Server(host, port)
+        else:
+            print element.name
+
+    def onDocumentEnd(self):
+        """ Parsing has finished, you should send your response now """
+        if self.action == 'download_from':
+            self.server_received(self.download_server)
+
+    def sendObject(self, obj):
+        if IElement.providedBy(obj):
+            print "[TX]: %s" % obj.toXml()
+        else:
+            print "[TX]: %s" % obj
+        self.send(obj)
+
+    def closeConnection(self):
+        self.transport.loseConnection()
+
+    def connectionLost(self, reason):
+        self.closeConnection()
+
+    def server_received(self, download_server):
+        self.closeConnection()
+        self.factory.server_received(download_server)
+
+class RequestMovieCentralServerFactory(ClientFactory):
+
+    protocol = RequestMovieCentralServerProtocol
+
+    def __init__(self, id_movie):
+        self.deferred = Deferred()
+        self.id_movie = id_movie
+
+    def server_received(self, server):
+        if self.deferred is not None:
+            d, self.deferred = self.deferred, None
+            print 'y u no send?'
+            #d.callback(self.id_movie, server)
+            d.callback()
+
+    def clientConnectionFailed(self, connector, reason):
+        if self.deferred is not None:
+            d, self.deferred = self.deferred, None
+            d.errback(reason)
+
+class RequestMovieDownloadServerProtocol(XmlStream):
+
+    def __init__(self):
+        XmlStream.__init__(self)    # possibly unnecessary
+        self._initializeStream()
+
+    def connectionMade(self):
+        request = Element((None, 'request_movie'))
+        request.addElement('id_movie').addContent(self.factory.id_movie)
+        self.sendObject(request)
+
+    def dataReceived(self, data):
+        """ Overload this function to simply pass the incoming data into the XML parser """
+        try:
+            self.stream.parse(data)
+        except Exception as e:
+            self._initializeStream()
+
+    def onDocumentStart(self, elementRoot):
+        """ The root tag has been parsed """
+        print('Root tag: {0}'.format(elementRoot.name))
+        print('Attributes: {0}'.format(elementRoot.attributes))
+        if elementRoot.name == 'movie_download':
+            self.action = 'movie_download'
+
+    def onElement(self, element):
+        """ Children/Body elements parsed """
+        print('\nElement tag: {0}'.format(element.name))
+        print('Element attributes: {0}'.format(element.attributes))
+        print('Element content: {0}'.format(element))
+
+    def onDocumentEnd(self):
+        """ Parsing has finished, you should send your response now """
+        if self.action == 'movie_download':
+            print 'Recibiendo pelicula:', self.factory.id_movie
+            self.factory.receiving_movie()
+
+    def sendObject(self, obj):
+        if IElement.providedBy(obj):
+            print 'heeeeello'
+            print self.transport.getPeer()
+            print "[TX]: %s" % obj.toXml()
+        else:
+            print 'heeeeello'
+            print self.transport.getPeer()
+            print "[TX]: %s" % obj
+        self.send(obj)
+
+    def connectionLost(self, reason):
+        self.confirmationReceived(self.reply)
+
+    def confirmationReceived(self, movie_list):
+        self.factory.list_received(movie_list)
+
+class RequestMovieDownloadServerFactory(ClientFactory):
+
+    protocol = RequestMovieDownloadServerProtocol
+
+    def __init__(self, id_movie, server):
+        self.deferred = Deferred()
+        self.id_movie = id_movie
+        self.server = server
+
+    def receiving_movie(self):
+        if self.deferred is not None:
+            d, self.deferred = self.deferred, None
+            d.callback()
+
+    def clientConnectionFailed(self, connector, reason):
+        if self.deferred is not None:
+            d, self.deferred = self.deferred, None
+            d.errback(reason)
+
+
 class ConsoleService(object):
 
     def __init__(self, host, port):
@@ -268,6 +422,13 @@ class ConsoleService(object):
         reactor.connectTCP(self.host, self.port, factory)
         return factory.deferred
 
+    def request_movie(self, movie):
+        factory = RequestMovieCentralServerFactory(movie)
+        factory.deferred.addCallback(self.print_ok)
+        from twisted.internet import reactor
+        reactor.connectTCP(self.host, self.port, factory)
+        return factory.deferred
+
     def print_confirmation(self, reply):
         return reply
 
@@ -278,6 +439,26 @@ class ConsoleService(object):
         for movie in movies:
             print movie.to_string()
             print '----------------------------------------'
+
+    def receiving_movie(self, id_movie):
+        print 'Recibiendo pelicula', id_movie
+        return 'Recibiendo pelicula' + id_movie
+
+    def print_ok(self):
+        print 'Ok'
+        return 'Ok'
+
+    def get_movie_from_server(self, id_movie, server):
+        print 'Buscando la pelicula', id_movie, 'en el servidor', server.to_string()
+        return 'Buscando la pelicula' + id_movie + 'en el servidor' + server.to_string()
+        #print 'SONIAAA ESTAS AHI?'
+        #print server.to_string()
+        #factory = RequestMovieDownloadServerFactory(id_movie, server)
+        #factory.deferred.addCallback(self.receiving_movie)
+        #from twisted.internet import reactor
+        #print server.to_string()
+        #reactor.connectTCP(server.host, server.port, factory)
+        #return factory.deferred
 
 def main():
 

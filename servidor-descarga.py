@@ -13,7 +13,7 @@ import optparse
 from twisted.internet             import stdio
 from twisted.protocols            import basic
 from twisted.protocols.basic      import NetstringReceiver
-from twisted.internet.protocol    import Protocol, ClientFactory
+from twisted.internet.protocol    import Protocol, ClientFactory, ServerFactory
 from twisted.internet.defer       import Deferred, maybeDeferred
 from movie                        import Movie, MovieList
 from twisted.words.xish.domish    import Element, IElement
@@ -175,6 +175,80 @@ class RegisterServerFactory(ClientFactory):
             d, self.deferred = self.deferred, None
             d.errback(reason)
 
+class ClientProtocol(XmlStream):
+
+    def __init__(self):
+        XmlStream.__init__(self)    # possibly unnecessary
+        self._initializeStream()
+        print 'oook'
+
+    def sendObject(self, obj):
+        if IElement.providedBy(obj):
+            print "[TX]: %s" % obj.toXml()
+        else:
+            print "[TX]: %s" % obj
+        self.send(obj)
+
+    def list_movies(self):
+        request = Element((None, 'movie_list'))
+        for movie in movies:
+            m = request.addElement('movie')
+            m['id_movie'] = movie.id_movie
+            m['title'] = movie.title
+            m['size'] = str(movie.size)
+        self.sendObject(request)
+
+    def dataReceived(self, data):
+        """ Overload this function to simply pass the incoming data into the XML parser """
+        try:
+            self.stream.parse(data)
+        except Exception as e:
+            self._initializeStream()
+
+    def onDocumentStart(self, elementRoot):
+        """ The root tag has been parsed """
+        print('Root tag: {0}'.format(elementRoot.name))
+        print('Attributes: {0}'.format(elementRoot.attributes))
+        if elementRoot.name == 'request_movie':
+            self.action = 'request_movie'
+
+    def onElement(self, element):
+        """ Children/Body elements parsed """
+        print('\nElement tag: {0}'.format(element.name))
+        print('Element attributes: {0}'.format(element.attributes))
+        print('Element content: {0}'.format(element))
+        if element.name == 'id_movie':
+            self.id_movie = str(element)
+        else:
+            print element.name
+
+    def onDocumentEnd(self):
+        print self.action
+        """ Parsing has finished, you should send your response now """
+        if self.action == 'request_movie':
+            self.send_movie(self.id_movie)
+
+    def send_movie(self, movie):
+        for m in movies:
+            if m.id_movie == movie:
+                request = Element((None, 'movie_download'))
+                self.sendObject(request)
+
+
+    def closeConnection(self):
+        self.transport.loseConnection()
+
+    def connectionMade(self):
+        print 'Nueva conexión desde', self.transport.getPeer()
+
+
+class ClientRequestsFactory(ServerFactory):
+
+    protocol = ClientProtocol
+
+    def __init__(self):
+        self.init = True
+
 class ConsoleService(object):
 
     def __init__(self, server_host, server_port, host, port):
@@ -201,6 +275,10 @@ def main():
     host, port = addr
 
     from twisted.internet import reactor
+
+
+    factory_client = ClientRequestsFactory()
+    port_for_client = reactor.listenTCP(port or 0, factory_client, interface=options.iface)
 
     service = ConsoleService(server_host, server_port, host, port)
     stdio.StandardIO(ConsoleProtocol(service), 0, 1, reactor)

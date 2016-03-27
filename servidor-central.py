@@ -183,6 +183,8 @@ class ClientProtocol(XmlStream):
             self.port = int(elementRoot.attributes['port'])
         elif elementRoot.name == 'list_movies':
             self.action = 'list_movies'
+        elif elementRoot.name == 'request_movie':
+            self.action = 'request_movie'
 
     def onElement(self, element):
         """ Children/Body elements parsed """
@@ -191,6 +193,8 @@ class ClientProtocol(XmlStream):
         print('Element content: {0}'.format(element))
         if element.name == 'username':
             self.username = str(element)
+        elif element.name == 'id_movie':
+            self.id_movie = str(element)
         else:
             print element.name
 
@@ -204,7 +208,18 @@ class ClientProtocol(XmlStream):
             self.registration_ok()
         elif self.action == 'list_movies':
             self.list_movies()
+        elif self.action == 'request_movie':
+            self.choose_download_server(self.id_movie)
 
+    def choose_download_server(self, movie):
+        for m in movies:
+            if m.id_movie == movie:
+                download_server = movies[m][0]
+        request = Element((None, 'download_from'))
+        s = request.addElement('server')
+        s['host'] = download_server.host
+        s['port'] = str(download_server.port)
+        self.sendObject(request)
 
 
     def closeConnection(self):
@@ -221,20 +236,6 @@ class ClientFactory(ServerFactory):
     def __init__(self, service):
         self.init = True
         self.service = service
-
-    def do_action(self, action, parameter, peer):
-        thunk = getattr(self, 'do_%s' % (action,), None)
-
-        if thunk is None:
-            return None
-
-        try:
-            return thunk(parameter, peer)
-        except:
-            return None
-
-    def do_register(self, username, peer):
-        return self.service.register_user(username, peer)
 
 class ClientService(object):
 
