@@ -6,20 +6,58 @@ class Movie:
         self.title = title
         self.size = size
 
+    def get_id(self):
+        return self.id_movie
+
+    def get_title(self):
+        return self.title
+
+    def get_size(self):
+        return self.size
+
     def to_string(self):
         return "id_pelicula: " + self.id_movie + ", titulo: " + self.title + ", size: " + str(self.size)
 
 
 class MovieList:
-
+    """ Tiene un diccionario de peliculas que tiene key=movie, value=serverList"""
     def __init__(self):
-        self.movies = []
+        self.movies = {}
 
-    def __len__(self):
-        return len(self.movies)
+    def is_element(self, movie):
+        for m in self.movies:
+            if m == movie: return True
+        return False
 
-    def add_movie(self, movie):
-        self.movies.append(movie)
+    def add_movie(self, movie, server):
+        if movie not in self.movies:
+            self.movies[movie] = [server]
+        else:
+            self.movies[movie].append(server)
+
+    def get_movie_dict(self):
+        return self.movies
+
+    def get_movie(self, id_movie):
+        for movie in self.movies:
+            if movie.get_id() == id_movie:
+                return movie
+        return None
+
+    def get_servers(self, movie):
+        return self.movies[movie]
+
+    def print_movies(self):
+        for movie in self.movies:
+            print movie.to_string()
+            print 'server:'
+            for server in self.movies[movie]:
+                print server.to_string()
+            print '---------------------'
+
+    def get_download_server_list(self, movie):
+        #Idealmente luego queremos devolver solo un servidor, el ideal
+        return self.movies[movie]
 
 class Client:
 

@@ -10,7 +10,7 @@ from movie                        import Movie, MovieList, Server, Client, Reque
 from twisted.words.xish.domish    import Element, IElement
 from twisted.words.xish.xmlstream import XmlStream, XmlStreamFactory
 
-movies = {}
+movies = MovieList()
 servers = []
 users = {}
 
@@ -113,23 +113,14 @@ class DownloadServerProtocol(XmlStream):
 
     def add_movie_list(self):
         for movie in self.movie_list:
-            if movie not in movies:
-                movies[movie] = [self.server]
-            else:
-                movies[movie].append(self.server)
+            movies.add_movie(movie, self.server)
 
 
     def closeConnection(self):
         self.transport.loseConnection()
 
     def print_movie_list(self):
-        for movie in movies:
-            print movie.to_string()
-            print 'server:'
-            for server in movies[movie]:
-                print server.to_string()
-            print '---------------------'
-
+        movies.print_movies()
 
     def connectionMade(self):
         print 'Nueva conexión desde', self.transport.getPeer()
@@ -158,11 +149,11 @@ class ClientProtocol(XmlStream):
 
     def list_movies(self):
         request = Element((None, 'movie_list'))
-        for movie in movies:
+        for movie in movies.get_movie_dict():
             m = request.addElement('movie')
-            m['id_movie'] = movie.id_movie
-            m['title'] = movie.title
-            m['size'] = str(movie.size)
+            m['id_movie'] = movie.get_id()
+            m['title'] = movie.get_title()
+            m['size'] = str(movie.get_size())
         self.sendObject(request)
 
     def dataReceived(self, data):
@@ -215,12 +206,12 @@ class ClientProtocol(XmlStream):
         response['reply'] = 'Ok'
         self.sendObject(response)
 
-
     def choose_download_server(self, movie):
-        for m in movies:
-            if m.id_movie == movie:
-                download_server = movies[m][0]
-                mov = m
+        mov = movies.get_movie(movie)
+        download_servers = movies.get_download_server_list()
+        # Ahorita solo elegimos el primero de la lista, idealmente queremos el
+        # que sea el mejor, no el primero
+        download_server = download_servers[0]
         request = Element((None, 'download_from'))
         s = request.addElement('server')
         s['host'] = download_server.host
@@ -309,8 +300,8 @@ class ConsoleProtocol(basic.LineReceiver):
             self.sendLine('server:')
             self.sendLine('  ' + server.to_string())
             self.sendLine('movies:')
-            for movie in movies:
-                if server in movies[movie]:
+            for movie in movies.get_movie_dict():
+                if server in movies.get_servers():
                     self.sendLine('  ' + movie.to_string())
 
     def requests_by_server(self):
