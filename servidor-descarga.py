@@ -10,12 +10,14 @@ without blocking the reactor.
 
 import optparse
 
-from twisted.internet import stdio
-from twisted.protocols import basic
-from twisted.protocols.basic import NetstringReceiver
-from twisted.internet.protocol import Protocol, ClientFactory
-from twisted.internet.defer import Deferred, maybeDeferred
-from movie import Movie, MovieList
+from twisted.internet             import stdio
+from twisted.protocols            import basic
+from twisted.protocols.basic      import NetstringReceiver
+from twisted.internet.protocol    import Protocol, ClientFactory
+from twisted.internet.defer       import Deferred, maybeDeferred
+from movie                        import Movie, MovieList
+from twisted.words.xish.domish    import Element, IElement
+from twisted.words.xish.xmlstream import XmlStream, XmlStreamFactory
 
 movies = []
 
@@ -89,39 +91,47 @@ class ConsoleProtocol(basic.LineReceiver):
         self.transport.loseConnection()
         reactor.stop()
 
-class RegisterServerProtocol(NetstringReceiver):
+class RegisterServerProtocol(XmlStream):
 
     reply = ''
 
     def __init__(self):
-        m = Movie('potter', 'Harry Potter')
-        m1 = Movie('anillos', 'El señor de los anillos')
-        m2 = Movie('wars', 'Star Wars')
+        XmlStream.__init__(self)    # possibly unnecessary
+        m = Movie('potter', 'Harry Potter', 123)
+        m1 = Movie('anillos', 'Lord of the Rings', 512)
+        m2 = Movie('wars', 'Star Wars', 463)
         movie_list = [m,m1,m2]
         for movie in movie_list:
             movies.append(movie)
 
-    def connectionMade(self):
-        self.sendString('server_host.' + self.factory.host)
-        self.sendString('server_port.' + str(self.factory.port))
-        for movie in movies:
-            if movie == movies[-1]:
-                self.sendString('id_movie.' + movie.id_movie)
-                self.sendString('last_movie_title.' + movie.title)
-            else:
-                self.sendString('id_movie.' + movie.id_movie)
-                self.sendString('movie_title.' + movie.title)
-
-    def stringReceived(self, request):
-        if 'Ok' in request:
-            self.reply = 'Ok'
-            self.confirmationReceived(self.reply)
-        elif 'Bad request' in request:
-            self.reply = 'Bad connection'
-            self.connectionLost(self.reply)
+    def sendObject(self, obj):
+        if IElement.providedBy(obj):
+            print "[TX]: %s" % obj.toXml()
         else:
-            self.reply = None
-            self.confirmationReceived()
+            print "[TX]: %s" % obj
+        self.send(obj)
+
+    def connectionMade(self):
+        request = Element((None, 'register_download_server'))
+        request['host'] = self.factory.host
+        request['port'] = str(self.factory.port)
+        for movie in movies:
+            m = request.addElement('movie')
+            m['id_movie'] = movie.id_movie
+            m['title'] = movie.title
+            m['size'] = str(movie.size)
+        self.sendObject(request)
+
+    #def stringReceived(self, request):
+    #    if 'Ok' in request:
+    #        self.reply = 'Ok'
+    #        self.confirmationReceived(self.reply)
+    #    elif 'Bad request' in request:
+    #        self.reply = 'Bad connection'
+    #        self.connectionLost(self.reply)
+    #    else:
+    #        self.reply = None
+    #        self.confirmationReceived()
 
     def connectionLost(self, reason):
         self.confirmationReceived(self.reply)

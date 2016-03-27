@@ -2,11 +2,13 @@
 
 import optparse, os
 
-from twisted.internet import stdio
-from twisted.protocols import basic
-from twisted.internet.protocol import ServerFactory, Protocol
-from twisted.protocols.basic import NetstringReceiver
-from movie import Movie, MovieList, Server, Client
+from twisted.internet             import stdio
+from twisted.protocols            import basic
+from twisted.internet.protocol    import ServerFactory, Protocol
+from twisted.protocols.basic      import NetstringReceiver
+from movie                        import Movie, MovieList, Server, Client
+from twisted.words.xish.domish    import Element
+from twisted.words.xish.xmlstream import XmlStream, XmlStreamFactory
 
 movies = {}
 servers = []
@@ -47,9 +49,66 @@ Se corre de la siguiente manera:
     return options, poetry_file
 
 
-class DownloadServerProtocol(NetstringReceiver):
+class DownloadServerProtocol(XmlStream):
 
     id_movie = None
+    movie_list = []
+    host = None
+    port = None
+
+    def __init__(self):
+        XmlStream.__init__(self)    # possibly unnecessary
+        self._initializeStream()
+
+    def dataReceived(self, data):
+        """ Overload this function to simply pass the incoming data into the XML parser """
+        try:
+            self.stream.parse(data)
+        except Exception as e:
+            self._initializeStream()
+
+    def onDocumentStart(self, elementRoot):
+        """ The root tag has been parsed """
+        print('Root tag: {0}'.format(elementRoot.name))
+        print('Attributes: {0}'.format(elementRoot.attributes))
+        if elementRoot.name == 'register_download_server':
+            self.action = 'register_download_server'
+            print elementRoot.attributes
+            print elementRoot.attributes['host']
+            print elementRoot.attributes['port']
+            self.host = str(elementRoot.attributes['host'])
+            self.port = int(elementRoot.attributes['port'])
+
+    def onElement(self, element):
+        """ Children/Body elements parsed """
+        print('\nElement tag: {0}'.format(element.name))
+        print('Element attributes: {0}'.format(element.attributes))
+        print('Element content: {0}'.format(element))
+        if element.name == 'movie':
+            id_movie = str(element.attributes['id_movie'])
+            title = str(element.attributes['title'])
+            size = int(element.attributes['size'])
+            m = Movie(id_movie, title, size)
+            self.movie_list.append(Movie(id_movie, title, size))
+        else:
+            print element.name
+
+    def onDocumentEnd(self):
+        """ Parsing has finished, you should send your response now """
+        print 'termine de parsear'
+        print self.host, type(self.host)
+        print self.port, type(self.port)
+        self.server = Server(self.host, self.port)
+        self.add_movie_list()
+        servers.append(self.server)
+        print 'new server added'
+
+    def add_movie_list(self):
+        for movie in self.movie_list:
+            if movie not in movies:
+                movies[movie] = [self.server]
+            else:
+                movies[movie].append(self.server)
 
     def stringReceived(self, request):
         if '.' not in request:

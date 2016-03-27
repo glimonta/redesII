@@ -1,11 +1,13 @@
+# coding=utf-8
 class Movie:
 
-    def __init__(self, id_movie, title):
+    def __init__(self, id_movie, title, size):
         self.id_movie = id_movie
         self.title = title
+        self.size = size
 
     def to_string(self):
-        return 'id_pelicula: ' + self.id_movie + ', titulo: ' + self.title
+        return "id_pelicula: " + self.id_movie + ", titulo: " + self.title + ", size: " + str(self.size)
 
 
 class MovieList:
