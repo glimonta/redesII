@@ -149,6 +149,23 @@ class ClientProtocol(XmlStream):
         XmlStream.__init__(self)    # possibly unnecessary
         self._initializeStream()
 
+    def sendObject(self, obj):
+        if IElement.providedBy(obj):
+            print "[TX]: %s" % obj.toXml()
+        else:
+            print "[TX]: %s" % obj
+        self.send(obj)
+
+    def list_movies(self):
+        print 'EPALE SONIAAA'
+        request = Element((None, 'movie_list'))
+        for movie in movies:
+            m = request.addElement('movie')
+            m['id_movie'] = movie.id_movie
+            m['title'] = movie.title
+            m['size'] = str(movie.size)
+        self.sendObject(request)
+
     def dataReceived(self, data):
         """ Overload this function to simply pass the incoming data into the XML parser """
         try:
@@ -164,6 +181,8 @@ class ClientProtocol(XmlStream):
             self.action = 'register_client'
             self.host = str(elementRoot.attributes['host'])
             self.port = int(elementRoot.attributes['port'])
+        elif elementRoot.name == 'list_movies':
+            self.action = 'list_movies'
 
     def onElement(self, element):
         """ Children/Body elements parsed """
@@ -172,49 +191,27 @@ class ClientProtocol(XmlStream):
         print('Element content: {0}'.format(element))
         if element.name == 'username':
             self.username = str(element)
-
         else:
             print element.name
 
     def onDocumentEnd(self):
+        print self.action
         """ Parsing has finished, you should send your response now """
         if self.action == 'register_client':
             self.client = Client(self.username, self.host, self.port)
             users[self.client] = []
             print 'Se agregó el nuevo cliente: ', self.client.to_string()
             self.registration_ok()
-
-    def sendObject(self, obj):
-        if IElement.providedBy(obj):
-            print "[TX]: %s" % obj.toXml()
-        else:
-            print "[TX]: %s" % obj
-        self.send(obj)
-
-    def registration_ok(self):
-        response = Element((None, 'registration_reply'))
-        response['reply'] = 'Ok'
-        self.sendObject(response)
+        elif self.action == 'list_movies':
+            self.list_movies()
 
 
-    def do_list_movies(self, value, peer):
-        return self.list_movies(value, peer)
-
-    def list_movies(self, value, peer):
-        for movie in movies:
-            self.sendString('id_movie.' + movie.id_movie)
-            self.sendString('movie_title.' + movie.title)
-        self.sendString('end_list.0')
 
     def closeConnection(self):
         self.transport.loseConnection()
 
     def connectionMade(self):
         print 'Nueva conexión desde', self.transport.getPeer()
-
-    def bad_request(self):
-        self.sendString('Bad Request')
-        self.transport.loseConnection()
 
 
 class ClientFactory(ServerFactory):

@@ -172,45 +172,57 @@ class RegisterServerFactory(ClientFactory):
             d, self.deferred = self.deferred, None
             d.errback(reason, connector.getDestination())
 
-class ListMovieServerProtocol(NetstringReceiver):
+class ListMovieServerProtocol(XmlStream):
 
     reply = ''
-    movies = MovieList()
+    movies = []
+
+    def __init__(self):
+        XmlStream.__init__(self)    # possibly unnecessary
+        self._initializeStream()
 
     def connectionMade(self):
-        self.sendString('list_movies.0')
+        request = Element((None, 'list_movies'))
+        self.sendObject(request)
 
-    def stringReceived(self, request):
-        if '.' not in request:
-            self.transport.loseConnection()
-            return
-
-        action, parameter = request.split('.', 1)
-
-        peer = self.transport.getPeer()
-        self.request_received(action, parameter, peer)
-
-    def request_received(self, action, parameter, peer):
-        thunk = getattr(self, 'do_%s' % (action,), None)
-
-        if thunk is None:
-            return None
-
+    def dataReceived(self, data):
+        """ Overload this function to simply pass the incoming data into the XML parser """
         try:
-            return thunk(parameter, peer)
-        except:
-            return None
+            self.stream.parse(data)
+        except Exception as e:
+            self._initializeStream()
 
-    def do_id_movie(self, id_movie, peer):
-        self.id_movie = id_movie
+    def onDocumentStart(self, elementRoot):
+        """ The root tag has been parsed """
+        #print('Root tag: {0}'.format(elementRoot.name))
+        #print('Attributes: {0}'.format(elementRoot.attributes))
+        if elementRoot.name == 'movie_list':
+            self.action = 'movie_list'
 
-    def do_movie_title(self, title, peer):
-        movie = Movie(self.id_movie, title)
-        if movie not in self.factory.movies:
-            self.factory.movies.append(movie)
+    def onElement(self, element):
+        """ Children/Body elements parsed """
+        #print('\nElement tag: {0}'.format(element.name))
+        #print('Element attributes: {0}'.format(element.attributes))
+        #print('Element content: {0}'.format(element))
+        if element.name == 'movie':
+            id_movie = str(element.attributes['id_movie'])
+            title = str(element.attributes['title'])
+            size = int(element.attributes['size'])
+            self.movies.append(Movie(id_movie, title, size))
+        else:
+            print element.name
 
-    def do_end_list(self, value, peer):
-        self.factory.list_received(self.factory.movies)
+    def onDocumentEnd(self):
+        """ Parsing has finished, you should send your response now """
+        if self.action == 'movie_list':
+            self.factory.list_received(self.movies)
+
+    def sendObject(self, obj):
+        if IElement.providedBy(obj):
+            print "[TX]: %s" % obj.toXml()
+        else:
+            print "[TX]: %s" % obj
+        self.send(obj)
 
     def connectionLost(self, reason):
         self.confirmationReceived(self.reply)
@@ -261,6 +273,7 @@ class ConsoleService(object):
 
     def print_movie_list(self, movies):
         print ''
+        print 'Peliculas del servidor:'
         print '----------------------------------------'
         for movie in movies:
             print movie.to_string()
