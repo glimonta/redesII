@@ -97,6 +97,7 @@ class RegisterServerProtocol(XmlStream):
 
     def __init__(self):
         XmlStream.__init__(self)    # possibly unnecessary
+        self._initializeStream()
         m = Movie('potter', 'Harry Potter', 123)
         m1 = Movie('anillos', 'Lord of the Rings', 512)
         m2 = Movie('wars', 'Star Wars', 463)
@@ -122,16 +123,32 @@ class RegisterServerProtocol(XmlStream):
             m['size'] = str(movie.size)
         self.sendObject(request)
 
-    #def stringReceived(self, request):
-    #    if 'Ok' in request:
-    #        self.reply = 'Ok'
-    #        self.confirmationReceived(self.reply)
-    #    elif 'Bad request' in request:
-    #        self.reply = 'Bad connection'
-    #        self.connectionLost(self.reply)
-    #    else:
-    #        self.reply = None
-    #        self.confirmationReceived()
+    def dataReceived(self, data):
+        """ Overload this function to simply pass the incoming data into the XML parser """
+        try:
+            self.stream.parse(data)
+        except Exception as e:
+            self._initializeStream()
+
+    def onDocumentStart(self, elementRoot):
+        """ The root tag has been parsed """
+        print('Root tag: {0}'.format(elementRoot.name))
+        print('Attributes: {0}'.format(elementRoot.attributes))
+        if elementRoot.name == 'registration_reply':
+            self.action = 'registration_reply'
+            if (elementRoot.attributes['reply'] == 'Ok'):
+                print 'Se registró exitosamente en el servidor central'
+            else:
+                print 'No se registró en el servidor central'
+
+    def onElement(self, element):
+        """ Children/Body elements parsed """
+        print('\nElement tag: {0}'.format(element.name))
+        print('Element attributes: {0}'.format(element.attributes))
+        print('Element content: {0}'.format(element))
+
+    def onDocumentEnd(self):
+        """ Parsing has finished, you should send your response now """
 
     def connectionLost(self, reason):
         self.confirmationReceived(self.reply)

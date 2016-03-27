@@ -7,7 +7,7 @@ from twisted.protocols            import basic
 from twisted.internet.protocol    import ServerFactory, Protocol
 from twisted.protocols.basic      import NetstringReceiver
 from movie                        import Movie, MovieList, Server, Client
-from twisted.words.xish.domish    import Element
+from twisted.words.xish.domish    import Element, IElement
 from twisted.words.xish.xmlstream import XmlStream, XmlStreamFactory
 
 movies = {}
@@ -92,10 +92,24 @@ class DownloadServerProtocol(XmlStream):
 
     def onDocumentEnd(self):
         """ Parsing has finished, you should send your response now """
-        self.server = Server(self.host, self.port)
-        self.add_movie_list()
-        servers.append(self.server)
-        print 'Se agregó el nuevo servidor: ', self.server.to_string()
+        if self.action == 'register_download_server':
+            self.server = Server(self.host, self.port)
+            self.add_movie_list()
+            servers.append(self.server)
+            print 'Se agregó el nuevo servidor: ', self.server.to_string()
+            self.registration_ok()
+
+    def sendObject(self, obj):
+        if IElement.providedBy(obj):
+            print "[TX]: %s" % obj.toXml()
+        else:
+            print "[TX]: %s" % obj
+        self.send(obj)
+
+    def registration_ok(self):
+        response = Element((None, 'registration_reply'))
+        response['reply'] = 'Ok'
+        self.sendObject(response)
 
     def add_movie_list(self):
         for movie in self.movie_list:
@@ -104,60 +118,6 @@ class DownloadServerProtocol(XmlStream):
             else:
                 movies[movie].append(self.server)
 
-    def stringReceived(self, request):
-        if '.' not in request:
-            self.transport.loseConnection()
-            return
-
-        action, parameter = request.split('.', 1)
-
-        peer = self.transport.getPeer()
-        self.request_received(action, parameter, peer)
-
-    def request_received(self, action, parameter, peer):
-        thunk = getattr(self, 'do_%s' % (action,), None)
-
-        if thunk is None:
-            return None
-
-        try:
-            return thunk(parameter, peer)
-        except:
-            return None
-
-    def do_server_host(self, host, peer):
-        self.factory.server_host = host
-        return 'Ok'
-
-    def do_server_port(self, port, peer):
-        self.factory.server_port = port
-        self.factory.ser = Server(self.factory.server_host, self.factory.server_port)
-        return 'Ok'
-
-    def do_number_of_movies(self, number, peer):
-        number_of_movies = number
-        return 'Ok'
-
-    def do_id_movie(self, id_movie, peer):
-        self.id_movie = id_movie
-        return 'Ok'
-
-    def do_movie_title(self, title, peer):
-        movie = Movie(self.id_movie, title)
-        if movie not in movies:
-            movies[movie] = [self.factory.ser]
-        else:
-            movies[movie].append(self.factory.ser)
-        return 'Ok'
-
-    def do_last_movie_title(self, title, peer):
-        movie = Movie(self.id_movie, title)
-        if movie not in movies:
-            movies[movie] = [self.factory.ser]
-        else:
-            movies[movie].append(self.factory.ser)
-        self.add_new_download_server()
-        return 'Ok'
 
     def closeConnection(self):
         self.transport.loseConnection()
@@ -171,12 +131,6 @@ class DownloadServerProtocol(XmlStream):
             print '---------------------'
 
 
-    def add_new_download_server(self):
-        servers.append(self.factory.ser)
-        #self.print_movie_list()
-        self.sendString('Ok')
-        self.transport.loseConnection()
-
     def connectionMade(self):
         print 'Nueva conexión desde', self.transport.getPeer()
 
@@ -189,35 +143,59 @@ class DownloadServerFactory(ServerFactory):
         self.init = True
 
 
-class ClientProtocol(NetstringReceiver):
+class ClientProtocol(XmlStream):
 
-    users = []
+    def __init__(self):
+        XmlStream.__init__(self)    # possibly unnecessary
+        self._initializeStream()
 
-    def stringReceived(self, request):
-        if '.' not in request:
-            self.transport.loseConnection()
-            return
-
-        action, parameter = request.split('.', 1)
-
-        peer = self.transport.getPeer()
-        self.request_received(action, parameter, peer)
-
-    def request_received(self, action, parameter, peer):
-        result = self.do_action(action, parameter, peer)
-
-    def do_action(self, action, parameter, peer):
-        thunk = getattr(self, 'do_%s' % (action,), None)
-
-        if thunk is None:
-            return None
-
+    def dataReceived(self, data):
+        """ Overload this function to simply pass the incoming data into the XML parser """
         try:
-            return thunk(parameter, peer)
-        except:
-            return None
+            self.stream.parse(data)
+        except Exception as e:
+            self._initializeStream()
 
-        self.transport.loseConnection
+    def onDocumentStart(self, elementRoot):
+        """ The root tag has been parsed """
+        print('Root tag: {0}'.format(elementRoot.name))
+        print('Attributes: {0}'.format(elementRoot.attributes))
+        if elementRoot.name == 'register_client':
+            self.action = 'register_client'
+            self.host = str(elementRoot.attributes['host'])
+            self.port = int(elementRoot.attributes['port'])
+
+    def onElement(self, element):
+        """ Children/Body elements parsed """
+        print('\nElement tag: {0}'.format(element.name))
+        print('Element attributes: {0}'.format(element.attributes))
+        print('Element content: {0}'.format(element))
+        if element.name == 'username':
+            self.username = str(element)
+
+        else:
+            print element.name
+
+    def onDocumentEnd(self):
+        """ Parsing has finished, you should send your response now """
+        if self.action == 'register_client':
+            self.client = Client(self.username, self.host, self.port)
+            users[self.client] = []
+            print 'Se agregó el nuevo cliente: ', self.client.to_string()
+            self.registration_ok()
+
+    def sendObject(self, obj):
+        if IElement.providedBy(obj):
+            print "[TX]: %s" % obj.toXml()
+        else:
+            print "[TX]: %s" % obj
+        self.send(obj)
+
+    def registration_ok(self):
+        response = Element((None, 'registration_reply'))
+        response['reply'] = 'Ok'
+        self.sendObject(response)
+
 
     def do_list_movies(self, value, peer):
         return self.list_movies(value, peer)

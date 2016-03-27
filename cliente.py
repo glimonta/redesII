@@ -10,12 +10,14 @@ without blocking the reactor.
 
 import optparse
 
-from twisted.internet import stdio
-from twisted.protocols import basic
-from twisted.protocols.basic import NetstringReceiver
-from twisted.internet.protocol import Protocol, ClientFactory
-from twisted.internet.defer import Deferred, maybeDeferred
-from movie import Movie, MovieList
+from twisted.internet             import stdio
+from twisted.protocols            import basic
+from twisted.protocols.basic      import NetstringReceiver
+from twisted.internet.protocol    import Protocol, ClientFactory
+from twisted.internet.defer       import Deferred, maybeDeferred
+from movie                        import Movie, MovieList
+from twisted.words.xish.domish    import Element, IElement
+from twisted.words.xish.xmlstream import XmlStream, XmlStreamFactory
 
 
 def parse_args():
@@ -96,27 +98,55 @@ class ConsoleProtocol(basic.LineReceiver):
         self.transport.loseConnection()
         reactor.stop()
 
-class RegisterServerProtocol(NetstringReceiver):
+class RegisterServerProtocol(XmlStream):
 
     reply = ''
     movies = MovieList()
 
-    def connectionMade(self):
-        #string = 'registro.' + self.factory.username
-        #length = str(len(string))
-        #self.sendString(length + ':' + string + ',')
-        self.sendString('register.' + self.factory.username)
+    def __init__(self):
+        XmlStream.__init__(self)    # possibly unnecessary
+        self._initializeStream()
 
-    def stringReceived(self, request):
-        if 'Ok' in request:
-            self.reply = 'Ok'
-            self.confirmationReceived(self.reply)
-        elif 'Bad request' in request:
-            self.reply = 'Bad connection'
-            self.connectionLost(self.reply)
+    def sendObject(self, obj):
+        if IElement.providedBy(obj):
+            print "[TX]: %s" % obj.toXml()
         else:
-            self.reply = None
-            self.confirmationReceived()
+            print "[TX]: %s" % obj
+        self.send(obj)
+
+    def connectionMade(self):
+        request = Element((None, 'register_client'))
+        request['host'] = self.transport.getHost().host
+        request['port'] = str(self.transport.getHost().port)
+        request.addElement('username').addContent(self.factory.username)
+        self.sendObject(request)
+
+    def dataReceived(self, data):
+        """ Overload this function to simply pass the incoming data into the XML parser """
+        try:
+            self.stream.parse(data)
+        except Exception as e:
+            self._initializeStream()
+
+    def onDocumentStart(self, elementRoot):
+        """ The root tag has been parsed """
+        print('Root tag: {0}'.format(elementRoot.name))
+        print('Attributes: {0}'.format(elementRoot.attributes))
+        if elementRoot.name == 'registration_reply':
+            self.action = 'registration_reply'
+            if (elementRoot.attributes['reply'] == 'Ok'):
+                print 'Se registró exitosamente en el servidor central'
+            else:
+                print 'No se registró en el servidor central'
+
+    def onElement(self, element):
+        """ Children/Body elements parsed """
+        print('\nElement tag: {0}'.format(element.name))
+        print('Element attributes: {0}'.format(element.attributes))
+        print('Element content: {0}'.format(element))
+
+    def onDocumentEnd(self):
+        """ Parsing has finished, you should send your response now """
 
     def connectionLost(self, reason):
         self.confirmationReceived(self.reply)
