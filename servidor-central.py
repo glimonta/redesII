@@ -6,12 +6,12 @@ from twisted.internet             import stdio
 from twisted.protocols            import basic
 from twisted.internet.protocol    import ServerFactory, Protocol
 from twisted.protocols.basic      import NetstringReceiver
-from movie                        import Movie, MovieList, Server, Client, Request
+from movie                        import Movie, MovieList, Server, Client, Request, ServerList
 from twisted.words.xish.domish    import Element, IElement
 from twisted.words.xish.xmlstream import XmlStream, XmlStreamFactory
 
 movies = MovieList()
-servers = []
+servers = ServerList()
 users = {}
 
 def parse_args():
@@ -95,7 +95,7 @@ class DownloadServerProtocol(XmlStream):
         if self.action == 'register_download_server':
             self.server = Server(self.host, self.port)
             self.add_movie_list()
-            servers.append(self.server)
+            servers.add_server(self.server)
             print 'Se agregó el nuevo servidor: ', self.server.to_string()
             self.registration_ok()
 
@@ -220,12 +220,11 @@ class ClientProtocol(XmlStream):
             if u.username == self.username:
                 client = u
                 users[u].append(Request(mov, download_server))
-        for s in servers:
-            if s == download_server:
-                print s.to_string()
-                print client.to_string()
-                print mov.to_string()
-                s.add_download(client, mov)
+        s = servers.get_server(download_server)
+        print s.to_string()
+        print client.to_string()
+        print mov.to_string()
+        s.add_download(client, mov)
         self.sendObject(request)
 
 
@@ -296,7 +295,7 @@ class ConsoleProtocol(basic.LineReceiver):
             self.sendLine(user.to_string())
 
     def movies_by_server(self):
-        for server in servers:
+        for server in servers.get_server_list():
             self.sendLine('server:')
             self.sendLine('  ' + server.to_string())
             self.sendLine('movies:')
@@ -305,7 +304,7 @@ class ConsoleProtocol(basic.LineReceiver):
                     self.sendLine('  ' + movie.to_string())
 
     def requests_by_server(self):
-        for server in servers:
+        for server in servers.get_server_list():
             self.sendLine('server:')
             self.sendLine('  '+ server.to_string())
             self.sendLine('movies:')
@@ -313,7 +312,7 @@ class ConsoleProtocol(basic.LineReceiver):
                 self.sendLine(movie)
 
     def clients_by_server(self):
-        for server in servers:
+        for server in servers.get_server_list():
             self.sendLine('server:')
             self.sendLine('  ' + server.to_string())
             self.sendLine('clients:')
