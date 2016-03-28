@@ -6,13 +6,13 @@ from twisted.internet             import stdio
 from twisted.protocols            import basic
 from twisted.internet.protocol    import ServerFactory, Protocol
 from twisted.protocols.basic      import NetstringReceiver
-from movie                        import Movie, MovieList, Server, Client, Request, ServerList
+from movie                        import Movie, MovieList, Server, Client, Request, ServerList, ClientList
 from twisted.words.xish.domish    import Element, IElement
 from twisted.words.xish.xmlstream import XmlStream, XmlStreamFactory
 
 movies = MovieList()
 servers = ServerList()
-users = {}
+clients = ClientList()
 
 def parse_args():
     usage = """ %prog [options]
@@ -193,7 +193,7 @@ class ClientProtocol(XmlStream):
         """ Parsing has finished, you should send your response now """
         if self.action == 'register_client':
             self.client = Client(self.username, self.host, self.port)
-            users[self.client] = []
+            clients.add_client(self.client)
             print 'Se agregó el nuevo cliente: ', self.client.to_string()
             self.registration_ok()
         elif self.action == 'list_movies':
@@ -216,10 +216,8 @@ class ClientProtocol(XmlStream):
         s = request.addElement('server')
         s['host'] = download_server.host
         s['port'] = str(download_server.port)
-        for u in users:
-            if u.username == self.username:
-                client = u
-                users[u].append(Request(mov, download_server))
+        client = clients.get_client(self.username)
+        clients.add_client(client, Request(mov, download_server))
         s = servers.get_server(download_server)
         print s.to_string()
         print client.to_string()
@@ -247,7 +245,7 @@ class ClientService(object):
 
     def register_user(self, username, peer):
         c = Client(username, peer.host, peer.port)
-        users[c] = []
+        clients.add_client(client)
         print 'El usuario', username, 'ha sido registrado exitosamente.'
         return 'Ok'
 
@@ -291,8 +289,8 @@ class ConsoleProtocol(basic.LineReceiver):
         reactor.stop()
 
     def registered_users(self):
-        for user in users:
-            self.sendLine(user.to_string())
+        for client in clients.get_client_dict():
+            self.sendLine(client.to_string())
 
     def movies_by_server(self):
         for server in servers.get_server_list():
@@ -300,7 +298,7 @@ class ConsoleProtocol(basic.LineReceiver):
             self.sendLine('  ' + server.to_string())
             self.sendLine('movies:')
             for movie in movies.get_movie_dict():
-                if server in movies.get_servers():
+                if server in movies.get_servers().get_server_list():
                     self.sendLine('  ' + movie.to_string())
 
     def requests_by_server(self):
